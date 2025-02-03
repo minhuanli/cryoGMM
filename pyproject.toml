@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cryogmm"
+version = "0.1.0"
+description = "Cryo-EM Gaussian Mixture Model"
+authors = [
+    { name="Minhuan Li", email="minhuanli@flatironinstitute.org" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/minhuanli/cryogmm"
+
+[tool.setuptools.packages.find]
+where = ["cryogmm"]
+
+[tool.setuptools]
+package-dir = {"" = "cryogmm"}
