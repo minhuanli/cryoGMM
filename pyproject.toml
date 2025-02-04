@@ -23,6 +23,3 @@ Homepage = "https://github.com/minhuanli/cryogmm"
 
 [tool.setuptools.packages.find]
 where = ["cryogmm"]
-
-[tool.setuptools]
-package-dir = {"" = "cryogmm"}
