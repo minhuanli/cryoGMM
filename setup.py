@@ -21,5 +21,5 @@ setup(
         "mdtraj",
         # Add other dependencies as needed
     ],
-    url="https://github.com/minhuanli/cryogmm",
+    url="https://github.com/minhuanli/cryoGMM",
 )
