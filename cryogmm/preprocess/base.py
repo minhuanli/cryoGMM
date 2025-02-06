@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 
-
 def dist(x1, x2):
     d = x2 - x1
     d2 = np.sum(d * d, axis=-1)

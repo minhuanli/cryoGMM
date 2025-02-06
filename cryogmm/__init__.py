@@ -1,6 +1,7 @@
 # Submodules
 from cryogmm import utils
 from cryogmm import preprocess
+from cryogmm import models
 
 # Top Level API
 from cryogmm.preprocess.whiten import Whitener
