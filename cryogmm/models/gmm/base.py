@@ -1,5 +1,19 @@
+import time
 import torch
+import numpy as np
+from tqdm import tqdm
 from torch.distributions import MixtureSameFamily, Categorical, MultivariateNormal
+
+
+def stable_logdet(matrix, epsilon=1e-7):
+    # Compute eigenvalues
+    eigvals = torch.linalg.eigvalsh(matrix)
+
+    # Clamp eigenvalues to ensure they're positive
+    eigvals = torch.clamp(eigvals, min=epsilon)
+
+    # Log determinant is the sum of the log of eigenvalues
+    return torch.sum(torch.log(eigvals), dim=-1)
 
 
 def batched_quad_term(diff, Sigma_inv, batch_size=20000):
@@ -72,7 +86,7 @@ def batched_weighted_outer_product(diff, responsibilities, N_k, batch_size=20000
     return Sigmas_temp
 
 
-def batched_gmm_sample_with_clusters(gmm, num_samples, batch_size=100):
+def batched_gmm_sample_with_clusters(gmm: MixtureSameFamily, num_samples, batch_size=100):
     """
     Samples from a MixtureSameFamily distribution in batches for memory efficiency, returning both the samples
     and their corresponding component assignments.
@@ -116,6 +130,33 @@ def batched_gmm_sample_with_clusters(gmm, num_samples, batch_size=100):
 
     return torch.cat(samples, dim=0), torch.cat(cluster_indices, dim=0)
 
+def infer_gmm_sigmas(Sigmas_init, diff, pi, N_iter=100, eps=1e-5):
+    nll_track = []
+    Sigmas = Sigmas_init.clone()
+    pbar = tqdm(range(N_iter), desc="Iterations")
+    for i in pbar:
+        Sigma_reg = Sigmas + torch.eye(Sigmas.shape[-1]).to(Sigmas) * 1e-5
+        Sigma_inv = torch.linalg.inv(Sigma_reg)  # [K, M, M]
+        # Calculate the responsibility
+        quad_term = batched_quad_term(diff, Sigma_inv, batch_size=20000)# [N, K]
+        log_pdf = -0.5 * (
+            quad_term + M * np.log(2.0 * torch.pi) + stable_logdet(Sigma_reg)
+        )  # Compute log of Gaussian densities, [N, K]
+        log_pdf += torch.log(pi)  # Add log cluster weights, [N, K]
+        responsibilities = torch.softmax(log_pdf, dim=1)
+        NLL = -torch.logsumexp(log_pdf, dim=1).sum()
+
+        # Use resiponsibility to update covariance matrix
+        N_k = responsibilities.sum(0)  # [K]
+        # Compute weighted sum of outer products in a memory-efficient way
+        Sigmas_temp = batched_weighted_outer_product(diff, responsibilities, N_k, batch_size=20000) # [K, M, M]
+        Sigmas = Sigmas_temp.clone()
+        nll_track.append(NLL.item())
+        pbar.set_postfix(NLL=f"{NLL.item():.3e}")
+        if NLL.item() is np.nan:
+            print("NaN detected in NLL. Exiting...", flush=True)
+            break
+    return Sigmas, nll_track
 
 # Define the GMM using MixtureSameFamily
 def create_gmm(weights, means, covariances):
@@ -141,6 +182,7 @@ def create_gmm(weights, means, covariances):
 
     return gmm
 
+
 def load_gmm(weights_path, means_path, covariance_path):
     """
     Load a Gaussian Mixture Model (GMM) from saved files.
@@ -153,8 +195,19 @@ def load_gmm(weights_path, means_path, covariance_path):
     Returns:
         MixtureSameFamily: A PyTorch GMM distribution object
     """
-    weights = torch.load(weights_path, weights_only=True)
-    means = torch.load(means_path, weights_only=True)
-    covariances = torch.load(covariance_path, weights_only=True)
+    if type(weights_path) is str:
+        weights = torch.load(weights_path, weights_only=True)
+    else:
+        weights = weights_path
+
+    if type(means_path) is str:
+        means = torch.load(means_path, weights_only=True)
+    else:
+        means = means_path
+
+    if type(covariance_path) is str:
+        covariances = torch.load(covariance_path, weights_only=True)
+    else:
+        covariances = covariance_path
 
     return create_gmm(weights, means, covariances)

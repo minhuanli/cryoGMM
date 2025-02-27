@@ -1,1 +1,1 @@
-from cryogmm.models import gmm
+from . import gmm
