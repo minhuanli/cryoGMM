@@ -6,4 +6,5 @@ from .base import (
     infer_gmm_sigmas,
     create_gmm,
     load_gmm,
+    regularize_covariance,
 )

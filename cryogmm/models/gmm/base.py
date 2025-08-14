@@ -108,10 +108,10 @@ def batched_gmm_sample_with_clusters(gmm: MixtureSameFamily, num_samples, batch_
 
     samples = []
     cluster_indices = []
-
+    counts = 0
     for _ in range(0, num_samples, batch_size):
         batch_size_actual = min(
-            batch_size, num_samples - len(samples)
+            batch_size, num_samples - counts
         )  # Handle last batch
 
         # Step 1: Sample cluster indices based on the mixture probabilities
@@ -127,6 +127,9 @@ def batched_gmm_sample_with_clusters(gmm: MixtureSameFamily, num_samples, batch_
 
         samples.append(selected_samples)
         cluster_indices.append(cluster_idx)
+        counts += batch_size_actual
+
+    assert counts == num_samples, "Sample count mismatch"
 
     return torch.cat(samples, dim=0), torch.cat(cluster_indices, dim=0)
 
@@ -211,3 +214,23 @@ def load_gmm(weights_path, means_path, covariance_path):
         covariances = covariance_path
 
     return create_gmm(weights, means, covariances)
+
+
+def regularize_covariance(cov_matrix: torch.Tensor, max: float = 1e0, min: float = 1e-4) -> torch.Tensor:
+    """
+    Regularizes a covariance matrix by clipping its small eigenvalues.
+
+    Args:
+        cov_matrix (torch.Tensor): The input covariance matrix (must be symmetric).
+        epsilon (float): The minimum value for the eigenvalues.
+
+    Returns:
+        torch.Tensor: The regularized covariance matrix.
+    """
+    eigenvalues, eigenvectors = torch.linalg.eigh(cov_matrix)
+
+    eigenvalues_clipped = torch.clamp(eigenvalues, max=max, min=min)
+
+    cov_matrix_regularized = eigenvectors @ torch.diag_embed(eigenvalues_clipped) @ eigenvectors.mT
+  
+    return cov_matrix_regularized
