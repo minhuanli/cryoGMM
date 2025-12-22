@@ -36,8 +36,8 @@ def grad_log_prob(
     If not in log-space, this would be something like:    
 
         # make each row of loglikelihood have max at 0 <-> likelihood row max at 1
-        # (grad is invariant to scaling each row by a constant)
-        log_likelihood = log_likelihood - jnp.max(log_likelihood, 1)[:, jnp.newaxis]
+        # (grad is invariant to scaling each likelihood row by a constant)
+        log_likelihood = log_likelihood - torch.max(log_likelihood, 1)[:, None]
         likelihood = np.exp(log_likelihood)
         
         density_at_weights = torch.sum(likelihood*weights, axis=1)
