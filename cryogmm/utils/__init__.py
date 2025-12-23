@@ -8,3 +8,9 @@ from cryogmm.utils.types import (
     assert_list,
     try_gpu,
 )
+
+from cryogmm.utils.reweighting import (
+    log_marginal_likelihood,
+    grad_log_prob,
+    multiplicative_gradient,
+)
