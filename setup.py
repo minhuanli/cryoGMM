@@ -15,11 +15,12 @@ setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        # List your dependencies here
         "numpy",
         "torch",
         "mdtraj",
-        # Add other dependencies as needed
+        "scikit-learn",
+        "tqdm",
+        "matplotlib",
     ],
     url="https://github.com/minhuanli/cryoGMM",
 )

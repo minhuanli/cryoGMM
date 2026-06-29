@@ -133,6 +133,170 @@ def batched_gmm_sample_with_clusters(gmm: MixtureSameFamily, num_samples, batch_
 
     return torch.cat(samples, dim=0), torch.cat(cluster_indices, dim=0)
 
+def sample_gmm_with_bond_filter(
+    pi,
+    means,
+    covariances,
+    whiteners,
+    mu_bond,
+    sigma_bond,
+    bond_sigma_cutoff,
+    n_atoms,
+    num_samples,
+    oversample_factor,
+    device,
+    is_degenerate=None,
+    cov_reg_min=1e-4,
+):
+    """
+    Sample from a GMM with per-cluster local PCA whiteners and bond-distance filtering.
+
+    Each cluster k has its own latent space of potentially different dimensionality M_k.
+    Samples are proposed by oversampling from the per-cluster Gaussian, projecting back to
+    Cartesian coordinates via the cluster whitener, then filtering based on backbone bond
+    length plausibility.
+
+    Args:
+        pi (torch.Tensor): Mixture weights of shape (K,) on device.
+        means (list[torch.Tensor]): Per-cluster mean vectors, each shape (M_k,) on device.
+        covariances (list[torch.Tensor]): Per-cluster covariance matrices, each shape
+            (M_k, M_k) on device.
+        whiteners (list[Whitener]): Per-cluster Whitener objects.
+        mu_bond (np.ndarray): Mean consecutive backbone bond lengths, shape (D_bond,).
+        sigma_bond (np.ndarray): Std of backbone bond lengths, shape (D_bond,).
+        bond_sigma_cutoff (float): Cutoff width w; samples with mean bond deviation > w*sigma
+            are rejected (log_p_cutoff = log_p_max - w**2 * D_bond / 2).
+        n_atoms (int): Number of backbone atoms (used to reshape flat coords to (N_atoms, 3)).
+        num_samples (int): Total number of samples to return.
+        oversample_factor (int): How many times more samples to propose per cluster before
+            filtering. Increase if many proposals are rejected.
+        device (str): Torch device string.
+        is_degenerate (list[bool] or None): Per-cluster flag. If True for cluster k, the bond
+            filter is skipped and all proposed samples are accepted directly (used for clusters
+            that use an identity whitener pinned to the cluster center). If None, filtering is
+            applied to all clusters.
+        cov_reg_min (float): Minimum eigenvalue regularization for per-cluster covariances.
+
+    Returns:
+        tuple:
+            - gmm_samples_xyz (np.ndarray): Filtered samples, shape (num_samples, n_atoms, 3).
+            - gmm_ids (torch.Tensor): Cluster index for each sample, shape (num_samples,).
+    """
+    K = len(means)
+    if is_degenerate is None:
+        is_degenerate = [False] * K
+
+    # Build bond distance Gaussian (shared across clusters)
+    mu_bond_t = torch.tensor(mu_bond, dtype=torch.float32, device=device)
+    cov_bond = torch.diag(torch.tensor(sigma_bond ** 2, dtype=torch.float32, device=device))
+    bond_mvn = MultivariateNormal(mu_bond_t, cov_bond)
+    D_bond = len(mu_bond)
+    log_p_max = bond_mvn.log_prob(mu_bond_t)
+    log_p_cutoff = log_p_max - bond_sigma_cutoff ** 2 * D_bond / 2
+
+    # Draw all cluster assignments at once from the mixture weights
+    cluster_ids_all = torch.multinomial(pi, num_samples, replacement=True)  # (num_samples,)
+    counts_k = torch.bincount(cluster_ids_all, minlength=K)  # (K,)
+
+    all_xyz = []
+    all_ids = []
+
+    for k in range(K):
+        n_k = int(counts_k[k].item())
+        if n_k == 0:
+            continue
+
+        mu_k = means[k]
+        Sigma_k = covariances[k]
+        wtner_k = whiteners[k]
+
+        # Regularize covariance before sampling to ensure positive definiteness
+        Sigma_k_reg = regularize_covariance(Sigma_k, max=None, min=cov_reg_min)
+        gauss_k = MultivariateNormal(mu_k, Sigma_k_reg)
+
+        # Clamp proposed count: at least 1000 for a decent filter pool, at most 20000
+        N_MIN, N_MAX = 1000, 20000
+        n_proposed_base = int(np.clip(n_k * oversample_factor, N_MIN, N_MAX))
+
+        if is_degenerate[k]:
+            # Cluster center is a real MD frame — bond lengths are guaranteed valid.
+            # Skip filter and take all proposed samples directly.
+            z_proposed = gauss_k.sample((n_proposed_base,))
+            xyz_flat = wtner_k.blacken(z_proposed).cpu().numpy()
+            xyz_3d = xyz_flat.reshape(n_proposed_base, n_atoms, 3)
+            xyz_filtered = xyz_3d
+            n_filtered = n_proposed_base
+        else:
+            # Adaptive retry: double proposals up to N_MAX if nothing passes the filter.
+            # Always runs at least once (attempt_factors is non-empty).
+            n_filtered = 0
+            n_proposed_last = 0
+            xyz_3d = np.empty((0, n_atoms, 3), dtype=np.float32)
+            log_p = torch.empty(0, device=device)
+            xyz_filtered = xyz_3d  # will be reassigned in loop
+
+            for attempt_factor in [1, 2, 4]:
+                n_proposed = int(np.clip(n_proposed_base * attempt_factor, N_MIN, N_MAX))
+                if n_proposed == n_proposed_last:
+                    break  # already at N_MAX, no point retrying
+                n_proposed_last = n_proposed
+
+                z_proposed = gauss_k.sample((n_proposed,))
+                xyz_flat = wtner_k.blacken(z_proposed).cpu().numpy()
+                xyz_3d = xyz_flat.reshape(n_proposed, n_atoms, 3)
+                d_bonds = np.linalg.norm(xyz_3d[:, 1:] - xyz_3d[:, :-1], axis=2)
+                log_p = bond_mvn.log_prob(
+                    torch.tensor(d_bonds, dtype=torch.float32, device=device)
+                )
+                mask = (log_p > log_p_cutoff).cpu().numpy()
+                xyz_filtered = xyz_3d[mask]
+                n_filtered = int(mask.sum())
+
+                if n_filtered > 0:
+                    break
+                print(
+                    f"  Cluster {k}: {n_proposed} proposals, 0 passed bond filter "
+                    f"(best log_p={log_p.max().item():.1f}, cutoff={log_p_cutoff.item():.1f}). "
+                    f"Retrying with more proposals...",
+                    flush=True,
+                )
+
+            if n_filtered == 0:
+                # All retries exhausted — soft fallback: take the n_k proposals with
+                # the highest bond log-prob regardless of the cutoff.
+                log_p_np = log_p.cpu().numpy()
+                print(
+                    f"Warning: cluster {k}: 0/{n_proposed_last} samples passed bond filter "
+                    f"after all retries (best={log_p_np.max():.1f}, cutoff={log_p_cutoff.item():.1f}). "
+                    f"Falling back to top-{int(n_k)} by bond log-prob.",
+                    flush=True,
+                )
+                top_indices = np.argsort(log_p_np)[-int(n_k):]
+                all_xyz.append(xyz_3d[top_indices])
+                all_ids.append(torch.full((int(n_k),), k, dtype=torch.long))
+                continue  # skip normal index selection below
+
+            if n_filtered < n_k:
+                print(
+                    f"Warning: cluster {k} produced only {n_filtered}/{int(n_k)} samples after bond "
+                    f"filter. Sampling with replacement.",
+                    flush=True,
+                )
+
+        if n_filtered < n_k:
+            indices = np.random.choice(n_filtered, n_k, replace=True)
+        else:
+            indices = np.random.choice(n_filtered, n_k, replace=False)
+
+        all_xyz.append(xyz_filtered[indices])
+        all_ids.append(torch.full((n_k,), k, dtype=torch.long))
+
+    gmm_samples_xyz = np.concatenate(all_xyz, axis=0)   # (num_samples, n_atoms, 3)
+    gmm_ids = torch.cat(all_ids, dim=0)                 # (num_samples,)
+
+    return gmm_samples_xyz, gmm_ids
+
+
 def infer_gmm_sigmas(Sigmas_init, diff, pi, N_iter=100, eps=1e-5):
     nll_track = []
     Sigmas = Sigmas_init.clone()
@@ -186,7 +350,7 @@ def create_gmm(weights, means, covariances):
     return gmm
 
 
-def load_gmm(weights_path, means_path, covariance_path):
+def load_gmm(weights_path, means_path, covariance_path, device="cuda:0"):
     """
     Load a Gaussian Mixture Model (GMM) from saved files.
 
@@ -199,19 +363,19 @@ def load_gmm(weights_path, means_path, covariance_path):
         MixtureSameFamily: A PyTorch GMM distribution object
     """
     if type(weights_path) is str:
-        weights = torch.load(weights_path, weights_only=True)
+        weights = torch.load(weights_path, weights_only=True).to(device)
     else:
-        weights = weights_path
+        weights = weights_path.to(device)
 
     if type(means_path) is str:
-        means = torch.load(means_path, weights_only=True)
+        means = torch.load(means_path, weights_only=True).to(device)
     else:
-        means = means_path
+        means = means_path.to(device)
 
     if type(covariance_path) is str:
-        covariances = torch.load(covariance_path, weights_only=True)
+        covariances = torch.load(covariance_path, weights_only=True).to(device)
     else:
-        covariances = covariance_path
+        covariances = covariance_path.to(device)
 
     return create_gmm(weights, means, covariances)
 
@@ -232,5 +396,9 @@ def regularize_covariance(cov_matrix: torch.Tensor, max: float = 1e0, min: float
     eigenvalues_clipped = torch.clamp(eigenvalues, max=max, min=min)
 
     cov_matrix_regularized = eigenvectors @ torch.diag_embed(eigenvalues_clipped) @ eigenvectors.mT
-  
+
+    # Float32 Q @ diag(λ) @ Q.T accumulates roundoff that breaks bit-symmetry.
+    # MultivariateNormal's PD check (~1e-6 symmetry tolerance) rejects this, so symmetrize.
+    cov_matrix_regularized = 0.5 * (cov_matrix_regularized + cov_matrix_regularized.transpose(-1, -2))
+
     return cov_matrix_regularized

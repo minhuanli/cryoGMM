@@ -3,8 +3,16 @@ import torch
 from cryogmm.utils import assert_numpy, assert_tensor
 
 
-def _pca(X0, keepdims=None, save_memory=True):
-    """Implements PCA in Numpy"""
+def _pca(X0, keepdims=None, save_memory=True, scale=True):
+    """Implements PCA in Numpy
+
+    Parameters
+    ----------
+    scale : bool
+        If True (default), apply full whitening: rotate and normalize each PC
+        to unit variance. If False, only rotate into the PCA basis without
+        variance normalization, preserving physical units.
+    """
     if keepdims is None:
         keepdims = X0.shape[1]
 
@@ -26,9 +34,15 @@ def _pca(X0, keepdims=None, save_memory=True):
     std = np.sqrt(eigval)
     eigvec = eigvec[:, I]
 
-    # whiten and unwhiten matrices
-    Twhiten = np.matmul(eigvec, np.diag(1.0 / std))
-    Tblacken = np.matmul(np.diag(std), eigvec.T)
+    if scale:
+        # whiten: rotate and normalize variance to unit
+        Twhiten = np.matmul(eigvec, np.diag(1.0 / std))
+        Tblacken = np.matmul(np.diag(std), eigvec.T)
+    else:
+        # project: rotate only, preserve physical units
+        Twhiten = eigvec        # [D_in, D_keep]
+        Tblacken = eigvec.T     # [D_keep, D_in]
+
     return X0mean, Twhiten, Tblacken, std
 
 
@@ -43,8 +57,8 @@ def directsum_np(A, B):
 
 
 class Whitener(object):
-    def __init__(self, X0, dim_cart_signal=None, keepdims=None, from_dict=False):
-        """Performs static whitening of the data given PCA of X0
+    def __init__(self, X0, dim_cart_signal=None, keepdims=None, scale=True, from_dict=False, device="cuda:0"):
+        """Performs static PCA-based projection of the data.
 
         Parameters:
         -----------
@@ -54,17 +68,19 @@ class Whitener(object):
             Number of cartesian indices in the features. By default treat all features in the same way
         keepdims : int or None
             Number of dimensions to keep. By default, all dimensions will be kept
-        whiten_inverse : bool
-            Whitens when calling inverse (default). Otherwise when calling forward
+        scale : bool
+            If True (default), apply full whitening (unit variance per PC).
+            If False, apply PCA rotation only, preserving physical units with
+            no variance amplification on inversion (blacken).
         from_dict : bool
             If True, initialize with placeholders, no time-consuming pca
-
         """
         if from_dict:
             self.dim_in = None
             self.keepdims = None
             self.dim_cart_signal = None
             self.dim_out = None
+            self.scale = None
             self.X0mean = None
             self.Twhiten = None
             self.Tblacken = None
@@ -75,26 +91,27 @@ class Whitener(object):
             self.dim_in = X0.shape[1]
             self.keepdims = keepdims
             self.dim_cart_signal = dim_cart_signal
+            self.scale = scale
             X0_np = assert_numpy(X0)
             if dim_cart_signal is not None:
                 X0_cart = X0_np[:, :dim_cart_signal]
                 X0_ic = X0_np[:, dim_cart_signal:]
                 X0mean_cart, Twhiten_cart, Tblacken_cart, std_cart = _pca(
-                    X0_cart, keepdims=keepdims
+                    X0_cart, keepdims=keepdims, scale=scale
                 )
-                X0mean_ic, Twhiten_ic, Tblacken_ic, std_ic = _pca(X0_ic, keepdims=None)
+                X0mean_ic, Twhiten_ic, Tblacken_ic, std_ic = _pca(X0_ic, keepdims=None, scale=scale)
                 # Do direct sum
                 X0mean = np.concatenate([X0mean_cart, X0mean_ic])
                 Twhiten = directsum_np(Twhiten_cart, Twhiten_ic)
                 Tblacken = directsum_np(Tblacken_cart, Tblacken_ic)
                 std = np.concatenate([std_cart, std_ic])
             else:
-                X0mean, Twhiten, Tblacken, std = _pca(X0_np, keepdims=keepdims)
+                X0mean, Twhiten, Tblacken, std = _pca(X0_np, keepdims=keepdims, scale=scale)
             self.dim_out = Twhiten.shape[1]
-            self.X0mean = assert_tensor(X0mean, arr_type=torch.float32)
-            self.Twhiten = assert_tensor(Twhiten, arr_type=torch.float32)
-            self.Tblacken = assert_tensor(Tblacken, arr_type=torch.float32)
-            self.std = assert_tensor(std, arr_type=torch.float32)
+            self.X0mean = assert_tensor(X0mean, arr_type=torch.float32, device=device)
+            self.Twhiten = assert_tensor(Twhiten, arr_type=torch.float32, device=device)
+            self.Tblacken = assert_tensor(Tblacken, arr_type=torch.float32, device=device)
+            self.std = assert_tensor(std, arr_type=torch.float32, device=device)
             if torch.any(self.std <= 0):
                 raise ValueError(
                     "Cannot construct whiten layer because trying to keep nonpositive eigenvalues."
@@ -104,7 +121,6 @@ class Whitener(object):
         """
         x : Tensor, [n_batch, dim_in]
         """
-        # Whiten
         output_z = torch.matmul(x - self.X0mean, self.Twhiten)
         return output_z
 
@@ -116,11 +132,12 @@ class Whitener(object):
         return output_x
 
     @classmethod
-    def from_dict(cls, D):
+    def from_dict(cls, D, device="cuda:0"):
         dim_in = D["dim_in"]
         dim_out = D["dim_out"]
         keepdims = D["keepdims"]
         dim_cart_signal = D["dim_cart_signal"]
+        scale = D.get("scale", True)
         X0mean = D["X0mean"]
         Twhiten = D["Twhiten"]
         Tblacken = D["Tblacken"]
@@ -130,10 +147,11 @@ class Whitener(object):
         c.dim_out = dim_out
         c.keepdims = keepdims
         c.dim_cart_signal = dim_cart_signal
-        c.X0mean = assert_tensor(X0mean, arr_type=torch.float32)
-        c.Twhiten = assert_tensor(Twhiten, arr_type=torch.float32)
-        c.Tblacken = assert_tensor(Tblacken, arr_type=torch.float32)
-        c.std = assert_tensor(std, arr_type=torch.float32)
+        c.scale = scale
+        c.X0mean = assert_tensor(X0mean, arr_type=torch.float32, device=device)
+        c.Twhiten = assert_tensor(Twhiten, arr_type=torch.float32, device=device)
+        c.Tblacken = assert_tensor(Tblacken, arr_type=torch.float32, device=device)
+        c.std = assert_tensor(std, arr_type=torch.float32, device=device)
         return c
 
     def to_dict(self):
@@ -142,6 +160,7 @@ class Whitener(object):
         D["dim_out"] = self.dim_out
         D["keepdims"] = self.keepdims
         D["dim_cart_signal"] = self.dim_cart_signal
+        D["scale"] = self.scale
         D["X0mean"] = assert_numpy(self.X0mean)
         D["Twhiten"] = assert_numpy(self.Twhiten)
         D["Tblacken"] = assert_numpy(self.Tblacken)
