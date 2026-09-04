@@ -30,17 +30,17 @@ that is what reweighting recovers.
 
 Treat the ensemble as a mixture whose components are the fixed candidate
 structures and whose proportions are unknown. The multiplicative gradient
-algorithm finds the proportions that maximise the likelihood of the observed
-image set. Each iteration scales every weight by the average, over images, of
+algorithm finds the proportions that maximize the likelihood of the observed
+image set, and [early stopping provides entropic regularization](https://arxiv.org/abs/2609.01688). Each iteration scales every weight by the average, over images, of
 how much that structure contributes to explaining each image relative to the
 current mixture. This is the expectation-maximization update for mixture
 proportions; writing it multiplicatively keeps the weights on the simplex for
-free — they start uniform, stay non-negative, and stay normalised.
+free — they start uniform, stay non-negative, and stay normalized.
 
 Iteration stops on a certificate rather than a fixed budget. The quantity
 `max(grad) - 1` upper-bounds the gap between the current log-likelihood and
 that of the optimal weights, so once it drops below `--tol` the answer is known
-to be within `tol` of the best achievable. Typical matrices converge in tens to
+to be within `tol` of the best achievable. Typical log-likelihood matrices converge in tens to
 hundreds of iterations.
 
 > The algorithm in `cryogmm/utils/reweighting.py` was written by **Luke Evans**.
@@ -88,7 +88,7 @@ cryogmm-reweight \
 | `--max_iterations` | Cap if the tolerance is never met (default: 10000) |
 | `--stats_frequency` | With `--verbose`, print the loss every this many iterations (default: 100) |
 | `--device` | `cpu` (default) or e.g. `cuda:0` |
-| `--double` | Run in float64; worth it for very tight `--tol` |
+| `--double` | Run in float64; helpful for small `--tol` or when many weights are near 0. |
 | `--verbose` | Print the loss as iteration proceeds |
 
 The run is cheap — the cost is one pass over the likelihood matrix per
