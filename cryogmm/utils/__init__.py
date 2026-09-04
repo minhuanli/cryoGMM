@@ -1,5 +1,6 @@
 from cryogmm.utils.io import (
-    save_samples_to_pdb
+    save_samples_to_pdb,
+    load_aligned_trajectory,
 )
 
 from cryogmm.utils.types import (

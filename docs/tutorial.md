@@ -2,6 +2,8 @@
 
 This tutorial walks through the full cryoGMM analysis pipeline — from fitting a Gaussian Mixture Model (GMM) to a set of clustered MD trajectories informed by cryo-EM SBI weights, through computing collective variables (CVs), to generating publication figures.
 
+It starts from an existing cluster assignment. To produce one — reducing a prior ensemble to a representative subset by farthest-point sampling — see **[docs/fps_clustering_tutorial.md](fps_clustering_tutorial.md)** first.
+
 ## Overview
 
 ```
@@ -45,7 +47,7 @@ cd cryoGMM
 pip install -e .
 ```
 
-Dependencies installed automatically: `numpy`, `torch`, `mdtraj`, `scikit-learn`, `tqdm`, `matplotlib`.
+Dependencies installed automatically: `numpy`, `torch`, `mdtraj`, `scikit-learn`, `fpsample`, `tqdm`, `matplotlib`.
 
 ---
 

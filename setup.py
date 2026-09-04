@@ -19,6 +19,7 @@ setup(
         "torch",
         "mdtraj",
         "scikit-learn",
+        "fpsample",
         "tqdm",
         "matplotlib",
     ],
