@@ -345,8 +345,8 @@ for i, seed in enumerate([42, 12345, 162, 160, 70]):
    [cryoLike](https://github.com/flatironinstitute/CryoLike) or
    [cryoSBI](https://github.com/flatironinstitute/cryoSBI) to get an
    image-to-structure log-likelihood matrix.
-2. Turn that matrix into per-cluster weights with
-   `cryogmm.utils.multiplicative_gradient`.
+2. Turn that matrix into per-structure weights with `cryogmm-reweight` — see
+   **[docs/reweighting_tutorial.md](reweighting_tutorial.md)**.
 3. Build the GMM and sample the reweighted ensemble, passing
    `--cluster_root {output_root}/{n_clusters}_clusters` to `gmm_build.py` —
    see **[docs/tutorial.md](tutorial.md)**.

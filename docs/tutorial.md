@@ -2,7 +2,7 @@
 
 This tutorial walks through the full cryoGMM analysis pipeline — from fitting a Gaussian Mixture Model (GMM) to a set of clustered MD trajectories informed by cryo-EM SBI weights, through computing collective variables (CVs), to generating publication figures.
 
-It starts from an existing cluster assignment. To produce one — reducing a prior ensemble to a representative subset by farthest-point sampling — see **[docs/fps_clustering_tutorial.md](fps_clustering_tutorial.md)** first.
+It starts from an existing cluster assignment and a set of weights. To produce those, see **[docs/fps_clustering_tutorial.md](fps_clustering_tutorial.md)** (the representative subset) and **[docs/reweighting_tutorial.md](reweighting_tutorial.md)** (the weights) first.
 
 ## Overview
 

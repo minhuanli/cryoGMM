@@ -18,6 +18,9 @@ calculation:
 - **[docs/fps_clustering_tutorial.md](docs/fps_clustering_tutorial.md)** —
   conformational subset construction: reduce a prior ensemble to a
   representative subset by farthest-point sampling in CV space.
+- **[docs/reweighting_tutorial.md](docs/reweighting_tutorial.md)** — ensemble
+  reweighting: turn an image-to-structure log-likelihood matrix into mixture
+  weights over conformations.
 - **[docs/tutorial.md](docs/tutorial.md)** — from building the GMM over that
   subset through to the figures.
 
@@ -29,7 +32,7 @@ CG / MD trajectory
         │
         ▼
   cryoLike / cryoSBI                           image-to-structure likelihood
-  cryogmm.utils.multiplicative_gradient        per-cluster weights
+  cryogmm-reweight                             per-structure weights
         │
         ▼
   Step 0: scripts/step0_build_gmm/gmm_build.py

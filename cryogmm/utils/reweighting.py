@@ -1,3 +1,34 @@
+"""
+Ensemble reweighting by the multiplicative gradient algorithm.
+
+Given a matrix of log-likelihoods of generating each experimental image from
+each candidate structure, this finds the mixture weights over structures that
+best explain the observed image set — the maximum-likelihood weights of a
+mixture model whose components are fixed and whose proportions are unknown.
+
+The update is multiplicative: each weight is scaled by the average, over
+images, of how much that structure contributes to explaining each image
+relative to the current mixture. This is the expectation-maximization update
+for mixture proportions, written without the notational overhead of EM. It
+keeps the weights on the simplex automatically — they start uniform, stay
+non-negative, and stay normalised — and every step is guaranteed not to
+decrease the likelihood.
+
+Iteration stops early on a certificate rather than a fixed budget: `max(grad)
+- 1` upper-bounds the gap between the current log-likelihood and that of the
+optimal weights, so once it falls below `tol` the answer is known to be within
+`tol` of the best achievable.
+
+Author
+------
+This module was written by Luke Evans (levans@flatironinstitute.org).
+
+References
+----------
+The method as applied to cryo-EM is introduced in
+https://www.nature.com/articles/s42003-026-09859-6
+"""
+
 import torch
 from typing import Optional
 
@@ -103,8 +134,14 @@ def multiplicative_gradient(
     """
     num_images, num_structures = log_likelihood.shape
 
-    # Initialize Weights
-    weights = (1/num_structures)*torch.ones(num_structures)
+    # Initialize Weights (on the same device and dtype as the input, so that a
+    # log_likelihood held on the GPU does not have to be moved to run this)
+    weights = torch.full(
+        (num_structures,),
+        1 / num_structures,
+        dtype=log_likelihood.dtype,
+        device=log_likelihood.device,
+    )
 
     stats = {}
     stats["losses"] = []
