@@ -98,6 +98,16 @@ Atom indices refer to the **aligned trajectory**, in the topology's atom order.
 Alternatively, pass a precomputed `(N_frames, D_cv)` array with `--cv_path` and
 skip `--cv` entirely.
 
+> **CVs are compared on their raw scale.** FPS measures distance in CV space
+> with a plain Euclidean metric, so a CV spanning a numerically wider range
+> counts for proportionally more when the centers are chosen. Mixed units make
+> this easy to miss: in the example above the RMSD is in Å, spanning roughly
+> 4–50, while the G6-A81 distance is in nm, spanning roughly 0.5–9 — so the
+> RMSD axis carries about five times the weight in the selection. That is what
+> the published clustering did. If you want your CVs weighted equally, rescale
+> the columns yourself (dividing each by its standard deviation, say) and pass
+> the result with `--cv_path`.
+
 > **Note.** FPS could in principle be run on pairwise RMSD instead of CVs, but
 > that is not supported here: the RMSD matrix is quadratic in the number of
 > frames, and CV space is what the downstream analysis is expressed in anyway.
@@ -129,7 +139,8 @@ skip `--cv` entirely.
 
 ### Example command
 
-The P4-P6 Martini monomer, clustered on two inter-residue distances:
+The P4-P6 Martini monomer, clustered on an RMSD to the closed state and one
+inter-residue distance — the settings used in the paper:
 
 ```bash
 cryogmm-fps \
@@ -137,16 +148,19 @@ cryogmm-fps \
     --traj_top             /data/traj/top.pdb \
     --output_root          /data/clusters/my_system \
     --alignment_selection  "(resi > 108) and name BB2" \
-    --cv                   dist:325,785 \
+    --cv                   file:/data/traj/rmsd_to_closed.dat \
     --cv                   dist:33,529 \
-    --cv_labels            "CV1, dist(A50-C120)" "CV2, dist(G6-A81)" \
+    --cv_labels            "RMSD to closed state" "CV2, dist(G6-A81)" \
     --n_clusters           40 \
-    --seeds                42,12345,162,160,70
+    --seeds                42,12345,162,160,70 \
+    --backend              numpy \
+    --refine
 ```
 
 Here `(resi > 108) and name BB2` aligns on the structurally rigid part of the
 molecule, so the CVs measure genuine conformational change rather than overall
-tumbling. Atoms 325/785 and 33/529 are the BB2 beads of A50/C120 and G6/A81.
+tumbling. Atoms 33 and 529 are the BB2 beads of G6 and A81; the RMSD to the
+closed state is computed separately and read from a text file.
 
 This is cheap — a few minutes for ~10⁵ frames, dominated by loading the
 trajectory, and it needs no GPU.
@@ -249,14 +263,22 @@ numpy RNG, so `--seeds` makes each set exactly reproducible. The `numpy` backend
 behaves the same way. To reproduce a single set, pass just its seed:
 `--seeds 42`.
 
+The two backends implement the same greedy algorithm, but `fpsample` computes in
+single precision, so they can select different frames where distances are nearly
+tied. Fix one backend for a set of runs you intend to compare.
+
 ### Max-min refinement
 
-Greedy FPS is order-dependent and can occasionally leave two centers closer
-together than necessary. `--refine` runs sweeps of random candidate swaps,
-accepting any swap that increases the minimum pairwise distance between centers,
-and stops as soon as a full sweep finds no improvement. It is a noticeable
-extra cost and rarely changes the result meaningfully for a well-chosen CV
-space, so it is off by default.
+Greedy FPS is order-dependent and can leave two centers closer together than
+necessary. `--refine` runs sweeps of random candidate swaps, accepting any swap
+that increases the minimum pairwise distance between centers, and stops as soon
+as a full sweep finds no improvement.
+
+It is off by default because of its cost — the candidate pool is `--pool_frac`
+(default 0.1) of the trajectory per center per sweep — not because it is
+negligible. On the P4-P6 RMSD/CV2 run above it moved between 0 and 9 of the 40
+centers depending on the seed, so whether you enable it is part of the
+clustering definition: keep it fixed across the sets you intend to compare.
 
 ### Ångström-scale trajectories
 
@@ -285,19 +307,21 @@ traj = load_aligned_trajectory(
 xyz = traj.xyz
 
 # Embed every frame in a 2-D CV space
-cv1 = dist(xyz[:, 325], xyz[:, 785])   # A50-C120
-cv2 = dist(xyz[:, 33],  xyz[:, 529])   # G6-A81
-X = np.vstack([cv1, cv2]).T
+rmsd = np.loadtxt("rmsd_to_closed.dat")   # RMSD to the closed state
+cv2 = dist(xyz[:, 33], xyz[:, 529])       # G6-A81
+X = np.vstack([rmsd, cv2]).T
 
 for i, seed in enumerate([42, 12345, 162, 160, 70]):
-    centers_idx, labels = fps_clustering(X, n_clusters=40, seed=seed)
+    centers_idx, labels = fps_clustering(
+        X, n_clusters=40, seed=seed, backend="numpy", refine=True,
+    )
     save_cluster_assignment(
         f"./40_clusters/set_{i}", centers_idx, labels,
         xyz=xyz, topology=traj.top,
     )
     plot_fps_clustering(
         X, centers_idx, labels,
-        xlabel="CV1, dist(A50-C120)", ylabel="CV2, dist(G6-A81)",
+        xlabel="RMSD to closed state", ylabel="CV2, dist(G6-A81)",
         filename=f"./40_clusters/set_{i}/clustering.png",
     )
 ```

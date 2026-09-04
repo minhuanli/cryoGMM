@@ -10,8 +10,10 @@ cryogmm-fps \
     --traj_top             ${DATA_ROOT}/top.pdb \
     --output_root          ${OUTPUT_ROOT} \
     --alignment_selection  "(resi > 108) and name BB2" \
-    --cv                   dist:325,785 \
+    --cv                   file:${DATA_ROOT}/rmsd_to_closed.dat \
     --cv                   dist:33,529 \
-    --cv_labels            "CV1, dist(A50-C120)" "CV2, dist(G6-A81)" \
+    --cv_labels            "RMSD to closed state" "CV2, dist(G6-A81)" \
     --n_clusters           40 \
-    --seeds                42,12345,162,160,70
+    --seeds                42,12345,162,160,70 \
+    --backend              numpy \
+    --refine
