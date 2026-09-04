@@ -21,6 +21,7 @@ classifiers = [
 [project.scripts]
 cryogmm-fps = "cryogmm.cli.fps_clustering:main"
 cryogmm-reweight = "cryogmm.cli.reweighting:main"
+cryogmm-build-gmm = "cryogmm.cli.gmm_build:main"
 
 [project.urls]
 Homepage = "https://github.com/minhuanli/cryogmm"

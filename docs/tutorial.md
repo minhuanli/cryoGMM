@@ -10,7 +10,7 @@ It starts from an existing cluster assignment and a set of weights. To produce t
 MD trajectory + cluster assignments + SBI weights
         │
         ▼
-  Step 0: gmm_build.py
+  Step 0: cryogmm-build-gmm
   ─────────────────────────────────────────────
   Per-cluster local PCA whitener (adaptive dims)
   Ledoit-Wolf covariance estimation
@@ -70,7 +70,7 @@ The default scripts assume the **4-class** weight structure above (monomer clust
 
 ## Step 0: Build the GMM
 
-`scripts/step0_build_gmm/gmm_build.py`
+`cryogmm-build-gmm` (source: `cryogmm/cli/gmm_build.py`)
 
 Fits per-cluster local PCA whiteners using Ledoit-Wolf covariance estimation, then draws bond-distance-filtered samples from the GMM for each job and set.
 
@@ -93,7 +93,7 @@ Fits per-cluster local PCA whiteners using Ledoit-Wolf covariance estimation, th
 ### Example command
 
 ```bash
-python scripts/step0_build_gmm/gmm_build.py \
+cryogmm-build-gmm \
     --traj_path             /data/traj/positions.pt \
     --traj_top              /data/traj/top.pdb \
     --cluster_root          /data/clusters/{n_clusters}_clusters \
@@ -138,7 +138,7 @@ The outer set loop is the natural array dimension. With 5 sets:
 #SBATCH -p gpu --gres=gpu:1 --cpus-per-task=16
 
 SET_IDS=${SLURM_ARRAY_TASK_ID}
-python scripts/step0_build_gmm/gmm_build.py \
+cryogmm-build-gmm \
     ...all args... \
     --set_ids $SET_IDS
 ```
@@ -268,7 +268,7 @@ ROOT_DIR=/data/gmm_results SYSTEM_PATH=my_system N_CLUSTERS=40 \
 
 ### Ångström-scale trajectories
 
-If your trajectory is stored in Å (e.g. from FarFar or all-atom simulations), pass `--angstrom_to_nm` to both `gmm_build.py` and `gmm_cvs.py`. Also increase `--cov_reg_min` to `1e-2` since eigenvalue thresholds scale quadratically with coordinate units.
+If your trajectory is stored in Å (e.g. from FarFar or all-atom simulations), pass `--angstrom_to_nm` to `gmm_cvs.py`. `cryogmm-build-gmm` has no such flag — it works in whatever units the trajectory uses, and measures the bond-length statistics from that same trajectory, so it stays self-consistent. Do increase its `--cov_reg_min` to `1e-2`, since eigenvalue thresholds scale quadratically with coordinate units.
 
 ### Degenerate clusters
 
@@ -276,7 +276,7 @@ Clusters with very few samples (< 2 × keepdims) receive an identity whitener ce
 
 ### Shared cluster assignments
 
-If all sets share the same clustering (e.g. for resampling runs), pass `--shared_clusters` to `gmm_build.py`. This loads `center_idx.npy` and `cluster_labels.npy` directly from `--cluster_root` instead of `--cluster_root/set_{set_id}/`.
+If all sets share the same clustering (e.g. for resampling runs), pass `--shared_clusters` to `cryogmm-build-gmm`. This loads `center_idx.npy` and `cluster_labels.npy` directly from `--cluster_root` instead of `--cluster_root/set_{set_id}/`.
 
 ### Library API
 

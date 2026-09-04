@@ -2,7 +2,7 @@
 # ============================================================================
 # Example: Build GMM (Step 0)
 #
-# Runs gmm_build.py for a single system. Adjust variables below for your data.
+# Runs the GMM build for a single system. Adjust variables below for your data.
 # For cluster deployments, wrap in a SLURM array job over SET_IDS (0-4).
 #
 # Usage:
@@ -35,7 +35,7 @@ if [[ "${FORCE:-0}" == "1" ]]; then
     FORCE_FLAG="--force"
 fi
 
-python "$(dirname "$0")/gmm_build.py" \
+cryogmm-build-gmm \
     --traj_path              "$TRAJ_PATH" \
     --traj_top               "$TRAJ_TOP" \
     --cluster_root           "$CLUSTER_ROOT" \

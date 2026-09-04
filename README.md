@@ -35,7 +35,7 @@ CG / MD trajectory
   cryogmm-reweight                             per-structure weights
         │
         ▼
-  Step 0: scripts/step0_build_gmm/gmm_build.py
+  Step 0: cryogmm-build-gmm
   Step 1: scripts/step1_compute_cvs/gmm_cvs.py
   Step 2: scripts/step2_make_figures/
 ```

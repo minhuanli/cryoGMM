@@ -114,7 +114,7 @@ def parse_args():
 # ============================================================================
 # MAIN
 # ============================================================================
-if __name__ == "__main__":
+def main():
     args = parse_args()
 
     job_ids    = np.array([int(x) for x in args.job_ids.split(",")])
@@ -310,3 +310,7 @@ if __name__ == "__main__":
             )
 
     print("\n=== All sets and jobs processed successfully! ===", flush=True)
+
+
+if __name__ == "__main__":
+    main()
