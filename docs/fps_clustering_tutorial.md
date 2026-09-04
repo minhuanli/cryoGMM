@@ -23,7 +23,7 @@ sampled ensemble, and making figures — see
 CG / MD trajectory  (N_frames × N_atoms × 3)
         │
         ▼
-  scripts/fps_clustering/fps_clustering.py
+  cryogmm-fps
   ─────────────────────────────────────────────
   Superpose all frames onto frame 0
   Embed each frame in a low-D CV space   → X  (N_frames, D_cv)
@@ -53,6 +53,8 @@ git clone https://github.com/minhuanli/cryoGMM.git
 cd cryoGMM
 pip install -e .
 ```
+
+This registers the `cryogmm-fps` command, which can be run from any directory.
 
 FPS itself is delegated to [`fpsample`](https://github.com/leonardodalinky/fpsample),
 a fast Rust implementation, installed as a dependency. A pure-numpy backend is
@@ -104,7 +106,7 @@ skip `--cv` entirely.
 
 ## Step: Run the FPS clustering
 
-`scripts/fps_clustering/fps_clustering.py`
+`cryogmm-fps` (source: `cryogmm/cli/fps_clustering.py`)
 
 ### Key arguments
 
@@ -130,7 +132,7 @@ skip `--cv` entirely.
 The P4-P6 Martini monomer, clustered on two inter-residue distances:
 
 ```bash
-python scripts/fps_clustering/fps_clustering.py \
+cryogmm-fps \
     --traj_path            /data/traj/positions_all_traj.pt \
     --traj_top             /data/traj/top.pdb \
     --output_root          /data/clusters/my_system \
@@ -203,7 +205,7 @@ representative structure, holding the clustering itself fixed?
 member frames from within each cluster:
 
 ```bash
-python scripts/fps_clustering/fps_clustering.py \
+cryogmm-fps \
     ...same arguments... \
     --mode    resample \
     --n_sets  5

@@ -5,7 +5,7 @@
 DATA_ROOT=/path/to/martini_monomer_traj
 OUTPUT_ROOT=/path/to/fps_clustering
 
-python fps_clustering.py \
+cryogmm-fps \
     --traj_path            ${DATA_ROOT}/positions_all_traj.pt \
     --traj_top             ${DATA_ROOT}/top.pdb \
     --output_root          ${OUTPUT_ROOT} \

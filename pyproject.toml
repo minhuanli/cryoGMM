@@ -18,11 +18,14 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.scripts]
+cryogmm-fps = "cryogmm.cli.fps_clustering:main"
+
 [project.urls]
 Homepage = "https://github.com/minhuanli/cryogmm"
 
-[tool.setuptools]
-packages = ["cryogmm"]
+[tool.setuptools.packages.find]
+include = ["cryogmm*"]
 
 [tool.setuptools.package-dir]
 "" = "."

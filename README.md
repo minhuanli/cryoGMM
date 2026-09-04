@@ -25,7 +25,7 @@ calculation:
 CG / MD trajectory
         │
         ▼
-  scripts/fps_clustering/fps_clustering.py     representative subset + clusters
+  cryogmm-fps                                  representative subset + clusters
         │
         ▼
   cryoLike / cryoSBI                           image-to-structure likelihood
