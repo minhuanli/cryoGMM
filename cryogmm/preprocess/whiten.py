@@ -3,7 +3,12 @@ import torch
 from cryogmm.utils import assert_numpy, assert_tensor
 
 
-def _pca(X0, keepdims=None, save_memory=True, scale=True):
+# Cap on the number of samples the covariance is accumulated over, when
+# save_memory is on. Only a dataset larger than this is subsampled.
+NBATCH_MAX = 20000
+
+
+def _pca(X0, keepdims=None, save_memory=True, scale=True, seed=None):
     """Implements PCA in Numpy
 
     Parameters
@@ -12,13 +17,20 @@ def _pca(X0, keepdims=None, save_memory=True, scale=True):
         If True (default), apply full whitening: rotate and normalize each PC
         to unit variance. If False, only rotate into the PCA basis without
         variance normalization, preserving physical units.
+    save_memory : bool
+        If True (default), fit on at most NBATCH_MAX samples, drawn without
+        replacement. Datasets at or below that size are used in full, so the
+        result is deterministic.
+    seed : int, optional
+        Seed for the subsample, used only when one is actually drawn. Pass it
+        to make the fit reproducible on datasets larger than NBATCH_MAX.
     """
     if keepdims is None:
         keepdims = X0.shape[1]
 
-    if save_memory:
-        Nbatch = min(20000, X0.shape[0])
-        batch_indices = np.random.choice(X0.shape[0], Nbatch)
+    if save_memory and X0.shape[0] > NBATCH_MAX:
+        rng = np.random.default_rng(seed)
+        batch_indices = rng.choice(X0.shape[0], NBATCH_MAX, replace=False)
         X0 = X0[batch_indices]
 
     # pca
@@ -57,7 +69,7 @@ def directsum_np(A, B):
 
 
 class Whitener(object):
-    def __init__(self, X0, dim_cart_signal=None, keepdims=None, scale=True, from_dict=False, device="cuda:0"):
+    def __init__(self, X0, dim_cart_signal=None, keepdims=None, scale=True, from_dict=False, device="cuda:0", seed=None):
         """Performs static PCA-based projection of the data.
 
         Parameters:
@@ -74,6 +86,10 @@ class Whitener(object):
             no variance amplification on inversion (blacken).
         from_dict : bool
             If True, initialize with placeholders, no time-consuming pca
+        seed : int, optional
+            Seed for the PCA subsample. Only has an effect when X0 holds more
+            than NBATCH_MAX samples; below that the fit uses all of them and is
+            deterministic regardless.
         """
         if from_dict:
             self.dim_in = None
@@ -97,16 +113,20 @@ class Whitener(object):
                 X0_cart = X0_np[:, :dim_cart_signal]
                 X0_ic = X0_np[:, dim_cart_signal:]
                 X0mean_cart, Twhiten_cart, Tblacken_cart, std_cart = _pca(
-                    X0_cart, keepdims=keepdims, scale=scale
+                    X0_cart, keepdims=keepdims, scale=scale, seed=seed
                 )
-                X0mean_ic, Twhiten_ic, Tblacken_ic, std_ic = _pca(X0_ic, keepdims=None, scale=scale)
+                X0mean_ic, Twhiten_ic, Tblacken_ic, std_ic = _pca(
+                    X0_ic, keepdims=None, scale=scale, seed=seed
+                )
                 # Do direct sum
                 X0mean = np.concatenate([X0mean_cart, X0mean_ic])
                 Twhiten = directsum_np(Twhiten_cart, Twhiten_ic)
                 Tblacken = directsum_np(Tblacken_cart, Tblacken_ic)
                 std = np.concatenate([std_cart, std_ic])
             else:
-                X0mean, Twhiten, Tblacken, std = _pca(X0_np, keepdims=keepdims, scale=scale)
+                X0mean, Twhiten, Tblacken, std = _pca(
+                    X0_np, keepdims=keepdims, scale=scale, seed=seed
+                )
             self.dim_out = Twhiten.shape[1]
             self.X0mean = assert_tensor(X0mean, arr_type=torch.float32, device=device)
             self.Twhiten = assert_tensor(Twhiten, arr_type=torch.float32, device=device)
